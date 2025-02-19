@@ -188,7 +188,6 @@
             "Microsoft.Graph.Beta.Identity.SignIns"
         ],
         "leastPermissions": [
-            "RoleManagementPolicy.Read.Directory",
             "RoleManagementPolicy.Read.AzureADGroup"
         ],
         "higherPermissions": [

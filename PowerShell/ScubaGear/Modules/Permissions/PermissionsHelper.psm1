@@ -337,20 +337,40 @@ Function Get-ScubaGearEntraRedundantPermissions{
     param(
         [Parameter(Mandatory = $false)]
         [ValidateSet('commercial', 'gcc', 'gcchigh', 'dod')]
-        [string]$Environment = 'commercial'
+        [string]$Environment = 'commercial',
+
+        [Parameter(Mandatory = $false)]
+        [switch]$ServicePrincipal
     )
 
     # Create a list to hold the filtered permissions
     $filteredPermissions = @()
 
     # get all modules with least and higher permissions
-    $allPermissions = Get-ScubaGearPermissions -Product aad -OutAs all -Environment $Environment
+    if($ServicePrincipal){
+        $allPermissions = "aad","exo","sharepoint" | Get-ScubaGearPermissions -OutAs all -Environment $Environment -servicePrincipal
+    }else{
+        $allPermissions = Get-ScubaGearPermissions -Product aad -OutAs all -Environment $Environment
+    }
 
     # Compare the permissions to find the redundant ones
     $comparedPermissions = Compare-Object $allPermissions.leastPermissions $allPermissions.higherPermissions -IncludeEqual
 
     # filter to get the higher overwriting permissions
     $OverwriteHigherPermissions = $comparedPermissions | Where-Object {$_.SideIndicator -eq "=="} | Select-Object -ExpandProperty InputObject -Unique
+
+    # if the ServicePrincipal switch is used, then add the appropriate resourceAPIAppId to $OverwriteHigherPermissions from line 356 by looking at the $allPermissions
+    if($ServicePrincipal){
+        $newOverwriteHigherPermissions = @()
+        ForEach($permission in $OverwriteHigherPermissions) {
+            $resourceAPIAppId = ($allPermissions | Where-Object { $_.leastPermissions -contains $permission } | Select-Object -ExpandProperty resourceAPIAppId -Unique)
+            $newObject = [PSCustomObject]@{
+                resourceAPIAppId   = $resourceAPIAppId
+                leastPermissions   = $permission
+            }
+            $newOverwriteHigherPermissions += $newObject
+        }
+    }
 
     # loop thru each module and grab the least permissions unless the higher permissions is one from the $overriteHigherPermissions
     # Don't include the least permissions that are overwriten by the higher permissions
@@ -360,12 +380,20 @@ Function Get-ScubaGearEntraRedundantPermissions{
         }
     }
 
-    # Build a new list of permissions that includes the least permissions and the higher permissions that overwrite them
     $NewPermissions = @()
-    $NewPermissions += $filteredPermissions | Select-Object -ExpandProperty leastPermissions -Unique
-    # include overwrite higher permissions
-    $NewPermissions += $OverwriteHigherPermissions
-    $NewPermissions = $NewPermissions | Sort-Object -Unique
+    # Build a new list of permissions that includes the least permissions and the higher permissions that overwrite them
+    if($ServicePrincipal){
+        $NewPermissions += $filteredPermissions | Select-Object -Property leastPermissions, resourceAPIAppId -Unique
+
+        # include overwrite higher permissions
+        $NewPermissions += $newOverwriteHigherPermissions
+    }else{
+        $NewPermissions += $filteredPermissions | Select-Object -ExpandProperty leastPermissions -Unique
+
+        # include overwrite higher permissions
+        $NewPermissions += $OverwriteHigherPermissions
+        $NewPermissions = $NewPermissions | Sort-Object -Unique
+    }
 
     # Display the filtered permissions
     return $NewPermissions
