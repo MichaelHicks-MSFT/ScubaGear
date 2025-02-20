@@ -46,10 +46,10 @@ function Compare-ScubaGearPermissions {
                 $RoleName = $Role
                 $roleDefinition = Get-MgRoleManagementDirectoryRoleDefinition -Filter "displayName eq '$RoleName'"
             }
-            Write-Host "Service Pricipal missing role: $Roles" -foregroundcolor Yellow
-            Write-Host ""
+            Write-Output "Service Pricipal missing role: $Roles"
+            Write-Output ""
         }else{
-            Write-Host "Service Principal already assigned to directory roles [$Roles] as specified in the permissions file." -foregroundcolor Yellow
+            Write-Output "Service Principal already assigned to directory roles [$Roles] as specified in the permissions file."
         }
         return $roleDefinition.Id
     }else{
@@ -95,24 +95,20 @@ function Compare-ScubaGearPermissions {
             $missingPermsCount = $SPMissingPerms.leastPermissions.Count
 
             if($missingPermsCount -eq 0){
-                Write-Host "Service Principal permissions comparison completed, missing " -NoNewline
-                Write-Host "[$missingPermsCount]" -ForegroundColor Green -NoNewline
-                Write-Host " API permissions"
+                Write-Output "Service Principal permissions comparison completed, no API permissions missing."
             }else{
-                Write-Host "Service Principal permissions comparison completed, missing " -NoNewline
-                Write-Host "[$missingPermsCount]" -ForegroundColor Red -NoNewline
-                Write-Host " API permissions"
-            }
+                Write-Warning "Service Principal permissions comparison completed, missing [$missingPermsCount] API permissions"
 
-            # Output the missing permissions
-            ForEach ($MissingPerm in $SPMissingPerms) {
-                Write-Host "Missing API Permission: $($MissingPerm.leastPermissions)" -foregroundcolor Yellow
+                # Output the missing permissions
+                ForEach ($MissingPerm in $SPMissingPerms) {
+                    Write-Output "Missing API Permission: $($MissingPerm.leastPermissions)"
+                }
             }
 
             if($SPExtraPerms){
                 # Output the extra permissions
-                Write-Host ""
-                Write-Host "Service Principal has extra permissions:"
+                Write-Output ""
+                Write-Warning "Service Principal has extra permissions:"
 
                 ForEach ($ExtraPerm in $SPExtraPerms) {
                 # Initialize a variable to store the API permission name
@@ -133,14 +129,14 @@ function Compare-ScubaGearPermissions {
 
                 # Output the results
                     If ($APIPermissionName) {
-                        Write-Host "Extra API Permission: $APIPermissionName" -ForegroundColor Red
+                        Write-Warning "Extra API Permission: $APIPermissionName"
                     } Else {
-                        Write-Host "No matching API permission found for ID: $($ExtraPerm).InputObject" -ForegroundColor Yellow
+                        Write-Warning "No matching API permission found for ID: $($ExtraPerm).InputObject"
                     }
                 }
             }
         } else {
-            Write-Host "No service principal permissions found, skipping comparison."
+            Write-Output "No service principal permissions found, skipping comparison."
         }
             return $SPMissingPerms
     }
@@ -179,9 +175,10 @@ function Set-ScubaGearRoles {
 
     try {
         $AssignGRRole = New-MgRoleManagementDirectoryRoleAssignment -PrincipalId $ServicePrincipalId -RoleDefinitionId $roleDefinitionId -DirectoryScopeId "/"
-        Write-Host "Assigned service principal to role:"
+        $RoleName = (Get-MgRoleManagementDirectoryRoleDefinition -UnifiedRoleDefinitionId $roleDefinitionID).DisplayName
+        Write-Output "Assigned service principal to role: $RoleName"
     } catch {
-        Write-Host "Failed to assign service principal to role:"
+        Write-Warning "Failed to assign service principal to role: $RoleName"
     }
 }
 
@@ -233,7 +230,7 @@ function Get-ScubaGearAppRoleIDs {
                 $AppRoleIDs += $AppRoleObject
             }
         } catch {
-            Write-Host "Failed to retrieve $ProductName API Permission: $APIPermissionNames"
+            Write-Warning "Failed to retrieve $ProductName API Permission: $APIPermissionNames : $_.Exception.Message"
         }
     }
 
@@ -298,13 +295,13 @@ function Set-ScubaGearAPIPermissions {
                     $ProductName = $ProductResource.AppDisplayName
 
                     $null = New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $ServicePrincipalID -PrincipalId $ServicePrincipalID -ResourceId $ProductResourceID -AppRoleId $AppRoleID
-                    Write-Host "Assigned $ProductName API Permission: $($MissingPerm.leastPermissions)"
+                    Write-Output "Assigned $ProductName API Permission: $($MissingPerm.leastPermissions)"
                 } catch {
-                    Write-Host -Message "Failed to assign missing $ProductName API Permission: $APIPermissionName"
+                    Write-Warning "Failed to assign missing $ProductName API Permission: $APIPermissionName : $_.Exception.Message"
                 }
             }
         } catch {
-            Write-Host "Failed to assign Service Principal to API permissions: $_.Exception.Message"
+            Write-Warning "Failed to assign Service Principal to API permissions: $_.Exception.Message"
             throw
         }
     } elseif ($null -eq $SPPerms) {
@@ -321,14 +318,14 @@ function Set-ScubaGearAPIPermissions {
                 $ProductName = $ProductResource.AppDisplayName
 
                 $null = New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $ServicePrincipalID -PrincipalId $ServicePrincipalID -ResourceId $ProductResourceID -AppRoleId $AppRoleID
-                Write-Host "Assigned $ProductName API Permission: $APIPermissionName"
+                Write-Output "Assigned $ProductName API Permission: $APIPermissionName"
             }
         } catch {
-            Write-Host "Failed to assign Service Principal to API permissions: $_.Exception.Message"
+            Write-Warning"Failed to assign Service Principal to API permissions: $_.Exception.Message"
             throw
         }
     } else {
-        Write-Host "Service Principal already assigned to API permissions, skipping assignment."
+        Write-Output "Service Principal already assigned to API permissions, skipping assignment."
     }
 }
 
@@ -390,11 +387,10 @@ Function Get-ScubaGearAppPermissions {
     # Connect to Microsoft Graph
     try {
         $Null = Connect-MgGraph -Scopes "Application.ReadWrite.All" -Environment $GraphEnvironment
-        Write-Host "Successfully connected to Microsoft Graph"
-        Write-Host ""
+        Write-Verbose "Successfully connected to Microsoft Graph"
     }
     catch {
-        Write-Host "Failed to connect to Microsoft Graph: $_.Exception.Message"
+        Write-Warning "Failed to connect to Microsoft Graph: $_.Exception.Message"
     }
 
     # Required Permissions for the ScubaGear Application
@@ -511,11 +507,11 @@ switch ($Environment.ToLower().Trim()) {
 Try {
     # Connect to Microsoft Graph
     try {
-        $Null = Connect-MgGraph -Scopes "Application.ReadWrite.All, RoleManagement.ReadWrite.Directory" -Environment $GraphEnvironment
-        Write-Host "Successfully connected to Microsoft Graph"
+        $Null = Connect-MgGraph -Scopes "Application.ReadWrite.All, RoleManagement.ReadWrite.Directory" -Environment $GraphEnvironment -NoWelcome
+        Write-Verbose "Successfully connected to Microsoft Graph"
     }
     catch {
-        Write-Host "Failed to connect to Microsoft Graph: $_.Exception.Message"
+        Write-Warning "Failed to connect to Microsoft Graph: $_.Exception.Message"
     }
 
     # Required Permissions for the ScubaGear Application
@@ -533,9 +529,7 @@ Try {
             Start-Sleep -Seconds 2
             $appExists = Get-MgApplication -ApplicationId $app.Id
         }
-        Write-Host ""
-        Write-Host "Service Principal Application (Client) ID: $($app.Id)" -foregroundcolor Yellow
-        Write-Host ""
+        Write-Verbose "Service Principal Application (Client) ID: $($app.Id)"
 
         $sp = New-MgServicePrincipal -AppId $app.AppId
 
@@ -553,10 +547,10 @@ Try {
                 $ProductName = $ProductResource.AppDisplayName
 
                 $null = New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $SP.ID -PrincipalId $SP.ID -ResourceId $ProductResourceID -AppRoleId $AppRoleID
-                Write-Host "Assigned $ProductName API Permission: $APIPermissionName" -foregroundcolor Green
+                Write-Verbose "Assigned $ProductName API Permission: $APIPermissionName"
             }
         }catch {
-            Write-Host "Failed to assign Service Principal to API permissions: $_.Exception.Message"
+            Write-Warning "Failed to assign Service Principal to API permissions: $_.Exception.Message"
             throw
         }
 
@@ -571,17 +565,17 @@ Try {
                     $null = New-MgRoleManagementDirectoryRoleAssignment -PrincipalId $SP.ID -RoleDefinitionId $roleDefinition.Id -DirectoryScopeId "/"
                     $assignedRoles += $RoleName
                 }Catch{
-                    Write-Host "Failed to assign service principal to role: $RoleName" -foregroundcolor Red
+                    Write-Warning "Failed to assign service principal to role: $RoleName"
                 }
-                Write-Host "Successfully assigned service principal to role: $RoleName" -foregroundcolor Green
+                Write-Verbose "Successfully assigned service principal to role: $RoleName"
             }
         } catch {
-            Write-Host "Failed to assign Service Principal to directory roles: $_.Exception.Message" -foregroundcolor Red
+            Write-Warning "Failed to assign Service Principal to directory roles: $_.Exception.Message"
             throw
         }
     }
     catch {
-        Write-Host "Failed to create Application and Service Principal: $_.Exception.Message" -foregroundcolor Red
+        Write-Warning "Failed to create Application and Service Principal: $_.Exception.Message"
         throw
     }
 
@@ -605,21 +599,20 @@ Try {
             )
         }
 
-        Write-Host ""
-        Write-Host "Successfully created certificate"
-        Write-Host "Certficate expires on: $($cert.NotAfter)" -foregroundcolor Yellow
+        Write-Verbose "Successfully created certificate"
+        Write-Verbose "Certficate expires on: $($cert.NotAfter)"
     } catch {
-        Write-Host "Failed to create certificate: $_.Exception.Message" -foregroundcolor Red
+        Write-Warning "Failed to create certificate: $_.Exception.Message"
     }
 
     try {
         #Update the application above with the certificate.
         Update-MgApplication -ApplicationId $app.Id -BodyParameter $params
 
-        Write-Host "Successfully updated application with certificate" -foregroundcolor Green
+        Write-Output "Successfully updated application with certificate"
     }
     catch {
-        Write-Host "Failed to update application with certificate: $_.Exception.Message" -foregroundcolor Red
+        Write-Warning "Failed to update application with certificate: $_.Exception.Message"
     }
 
     if($AddPowerAppsAccount){
@@ -634,26 +627,25 @@ Try {
             $PowerAppSetup = New-PowerAppManagementApp -ApplicationId $appId -WarningAction SilentlyContinue
 
             if ($PowerAppSetup) {
-                Write-Host ""
-                Write-Host "Power Platform setup was Successful!" -foregroundcolor Green
+                Write-Output "Power Platform setup was Successful!"
             } else {
                 $null = Add-PowerAppsAccount -Endpoint $PowerAppsEndpoint -TenantID $tenantId -WarningAction SilentlyContinue
                 $PowerAppSetup = New-PowerAppManagementApp -ApplicationId $appId -WarningAction SilentlyContinue
 
                 if ($PowerAppSetup) {
-                    Write-Host "Power Platform setup was Successful on retry!" -foregroundcolor Green
+                    Write-Output "Power Platform setup was Successful on retry!"
                 } else {
-                    Write-Host "Power Platform setup Failed on retry!" -foregroundcolor Red
+                    Write-Warning "Power Platform setup Failed on retry! $_.Exception.Message"
                     throw
                 }
             }
         } catch {
-            Write-Host "Failed to perform Power Platform requirements: $_.Exception.Message" -foregroundcolor Red
+            Write-Warning "Failed to perform Power Platform requirements: $_.Exception.Message"
             throw
         }
     }
 }catch{
-    Write-Host "Failed to create ScubaGear Application: $_.Exception.Message" -foregroundcolor Red
+    Write-Warning "Failed to create ScubaGear Application: $_.Exception.Message"
 }finally{
     # Always disconnect from the graph
     $DisconnectGraph = Disconnect-MgGraph
@@ -670,20 +662,25 @@ function Update-ScubaGearApp {
         This will add a new certificate to the service principal.
 
     .PARAMETER CertName
-        Used to define your certificate name that will be stored on your device and used to interface with the ScubaGear application created in this script. The default is "ScubaGearCert"
+        Used to define your certificate name that will be stored on your device and used to interface with the ScubaGear application created in this script.
 
     .PARAMETER ServicePrincipalName
         Used to define the name of the Service Principal that will be created.
 
     .EXAMPLE
-        Update-ScubaGearApp -CertName "NameOfYourCert" -ServicePrincipalName "MyServicePrincipal"
+        Update-ScubaGearApp -NewCert -CertName "NameOfYourCert" -ServicePrincipalName "MyServicePrincipal" -environment "gcchigh"
 
         Add a new certificate named "NameOfYourCert" to the service principal with the name "MyServicePrincipal"
 
     .EXAMPLE
-        Update-ScubaGearApp -ServicePrincipalName "MyServicePrincipal"
+        Update-ScubaGearApp -ServicePrincipalName "MyServicePrincipal" -Environment "commercial" -ListCerts
 
-        Add a new certificate to the service principal with the name "MyServicePrincipal"
+        List the current certificates for the service principal with the name "MyServicePrincipal"
+
+    .EXAMPLE
+        Update-ScubaGearApp -ServicePrincipalName "MyServicePrincipal" -Environment "dod" -DeleteCert "CN=NameOfYourCert"
+
+        Delete the certificate named "CN=NameOfYourCert" from the service principal with the name "MyServicePrincipal"
 
     .NOTES
         Author         : ScubaGear Team
@@ -693,7 +690,7 @@ function Update-ScubaGearApp {
     [CmdletBinding(DefaultParameterSetName = 'Default')]
     param(
         [Parameter(Mandatory=$true, ParameterSetName = "NewCert")]
-        [string]$CertName = "ScubaGearCert",
+        [string]$CertName,
 
         [Parameter(Mandatory=$true)]
         [string]$AppID,
@@ -728,11 +725,11 @@ function Update-ScubaGearApp {
     Try {
         # Connect to Microsoft Graph
         try {
-            $Null = Connect-MgGraph -Scopes "Application.ReadWrite.All" -Environment $GraphEnvironment
-            Write-Host "Successfully connected to Microsoft Graph"
+            $Null = Connect-MgGraph -Scopes "Application.ReadWrite.All" -Environment $GraphEnvironment -NoWelcome
+            Write-Verbose "Successfully connected to Microsoft Graph"
         }
         catch {
-            Write-Host "Failed to connect to Microsoft Graph: $_.Exception.Message"
+            Write-Warning "Failed to connect to Microsoft Graph: $_.Exception.Message"
         }
 
         if ($NewCert) {
@@ -769,24 +766,31 @@ function Update-ScubaGearApp {
                 }
                 Update-MgApplication -ApplicationId $app1.Id -BodyParameter $params
 
-                Write-host
-                Write-Host "Certificate appended for application $($app1.DisplayName)" -ForegroundColor Blue
-                Write-Host "Certificate Thumbprint - Utilize when running non-interactive: $($cert.Thumbprint)" -ForegroundColor Blue
+                Write-Output ""
+                Write-Output "Certificate appended for application $($app1.DisplayName)"
+                Write-Output ""
+                Write-Output "Certificate details utilized when running non-interactive:"
+                Write-Output "Certificate Thumbprint: $($cert.Thumbprint)"
+                Write-Output "SP Client/App ID: $($app1.AppId)"
+                Write-Output "Organization: $($app1.PublisherDomain)"
             } else {
-                Write-Host "Application ($ServicePrincipalName) not found" -ForegroundColor Red
+                Write-Warning "Application ($ServicePrincipalName) not found"
             }
         } elseif ($ListCerts) {
             # Find the application object ID for "ScubaGear Application"
             $app1 = Get-MgApplication -Filter "appid eq '$AppID'"
             if ($app1) {
                 # List current certificates
-                Write-Host ""
-                Write-Host "Current certificates for application $($app1.DisplayName):" -ForegroundColor Blue
+                Write-Output ""
+                Write-Output "Current certificates for application $($app1.DisplayName):"
                 foreach ($cert in $app1.keyCredentials) {
-                    Write-Host "Display Name: $($cert.displayName), Start Date: $($cert.startDateTime), End Date: $($cert.endDateTime)" -ForegroundColor Green
+                    Write-Output "Display Name: $($cert.displayName)"
+                    Write-Output "Start Date  : $($cert.startDateTime)"
+                    Write-Output "End Date    : $($cert.endDateTime)"
+                    Write-Output ""
                 }
             } else {
-                Write-Host "Application ID: $AppID not found" -ForegroundColor Red
+                Write-Warning "Application ID: $AppID not found"
             }
         } elseif ($DeleteCert) {
             # Find the application object ID for "ScubaGear Application"
@@ -804,23 +808,25 @@ function Update-ScubaGearApp {
 
                 if ($keyToRemove) {
                     # Remove the specified key credential
-                    $resizableKeyCredentials.Remove($keyToRemove)
+                    ForEach ($key in $keyToRemove) {
+                        $resizableKeyCredentials.Remove($key)
+                    }
 
                     # Update the application with the remaining key credentials
                     $params = @{
                         keyCredentials = $resizableKeyCredentials
                     }
                     Update-MgApplication -ApplicationId $app1.Id -BodyParameter $params
-                    Write-Host "Certificate '$DeleteCert' removed from application $($app1.DisplayName)" -ForegroundColor Blue
+                    Write-Output "Certificate '$DeleteCert' removed from application $($app1.DisplayName)"
                 } else {
-                    Write-Host "Certificate '$DeleteCert' not found in application $($app1.DisplayName)" -ForegroundColor Red
+                    Write-Warning "Certificate '$DeleteCert' not found in application $($app1.DisplayName)"
                 }
             } else {
-                Write-Host "Application with display name '$ServicePrincipalName' not found" -ForegroundColor Red
+                Write-Warning "Application with display name '$ServicePrincipalName' not found"
             }
         }
     } Catch {
-        Write-Host "Failed to update service principal: $_.Exception.Message"
+        Write-Warning "Failed to update service principal: $_.Exception.Message"
     }
 }
 
