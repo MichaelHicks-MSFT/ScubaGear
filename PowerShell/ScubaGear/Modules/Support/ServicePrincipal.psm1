@@ -12,6 +12,12 @@ function Compare-ScubaGearPermissions {
     .PARAMETER AppRoleIDs
         The AppRoleIDs that are required for the ScubaGear application.
 
+    .PARAMETER Roles
+        The roles that are required for the ScubaGear application.
+
+    .PARAMETER ExtraPermissions
+        Used to define whether the function will return extra permissions that are not in the AppRoleIDs array. This is a switch parameter and not ran by default.
+
     .EXAMPLE
         Compare-ScubaGearPermissions -ServicePrincipalID "AppID" -AppRoleIDs $AppRoleIDs
 
@@ -29,19 +35,20 @@ function Compare-ScubaGearPermissions {
         [object]$AppRoleIDs,
 
         [Parameter(Mandatory = $false)]
-        [string[]]$Roles
+        [string[]]$Roles,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$ExtraPermissions
     )
 
     if($Roles){
         # Assign the service principal to the directory roles
-        $SPRoleAssignment = Get-MgRoleManagementDirectoryRoleAssignment -Filter "principalId eq '$($SP.Id)'"
+        $SPRoleAssignment = Get-MgRoleManagementDirectoryRoleAssignment -Filter "principalId eq '$ServicePrincipalID'"
         if($Null -ne $SPRoleAssignment){
             $ISGRRole = Get-MgRoleManagementDirectoryRoleDefinition -UnifiedRoleDefinitionId $SPRoleAssignment.roleDefinitionId
         }
 
         if($Roles -notcontains $ISGRRole.DisplayName){
-            $assignedRoles = @()
-
             ForEach ($Role in $Roles) {
                 $RoleName = $Role
                 $roleDefinition = Get-MgRoleManagementDirectoryRoleDefinition -Filter "displayName eq '$RoleName'"
@@ -49,12 +56,14 @@ function Compare-ScubaGearPermissions {
             Write-Output "Service Pricipal missing role: $Roles"
             Write-Output ""
         }else{
+            Write-Output ""
             Write-Output "Service Principal already assigned to directory roles [$Roles] as specified in the permissions file."
         }
         return $roleDefinition.Id
     }else{
         $SPMissingPerms = @()
-        $SPExtraPerms = @()
+        $ExtraPerms = @()
+
         # Check to see if the service principal is already assigned to the API permissions (Compare Service principal permissions against the AppRoleIDs array)
         $SPPerms = Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $ServicePrincipalID
 
@@ -68,9 +77,6 @@ function Compare-ScubaGearPermissions {
 
             # Determine if the service principal is missing any permissions
             $SPMissingPerms = $Diff | Where-Object {$_.SideIndicator -eq "<="}
-
-            # Determine if the service principal has any extra permissions
-            $SPExtraPerms = $Diff | Where-Object {$_.SideIndicator -eq "=>"}
 
             # Create a new array to store the permissions that are missing from the service principal, ensure that the permissions are unique and the resourceAPIAppId is included
             # Ensure $SPMissingPerms is unique
@@ -91,54 +97,67 @@ function Compare-ScubaGearPermissions {
                 }
             }
 
-            # Output the updated $SPMissingPerms
-            $missingPermsCount = $SPMissingPerms.leastPermissions.Count
+            if (-not $PSBoundParameters.ContainsKey('ExtraPermissions')) {
+                # Output the updated $SPMissingPerms
+                $missingPermsCount = $SPMissingPerms.leastPermissions.Count
 
-            if($missingPermsCount -eq 0){
-                Write-Output "Service Principal permissions comparison completed, no API permissions missing."
-            }else{
-                Write-Warning "Service Principal permissions comparison completed, missing [$missingPermsCount] API permissions"
+                if($missingPermsCount -eq 0){
+                    Write-Output "Service Principal permissions comparison completed, no API permissions missing."
+                }else{
+                    Write-Warning "Service Principal permissions comparison completed, missing [$missingPermsCount] API permissions"
 
-                # Output the missing permissions
-                ForEach ($MissingPerm in $SPMissingPerms) {
-                    Write-Output "Missing API Permission: $($MissingPerm.leastPermissions)"
+                    # Output the missing permissions
+                    ForEach ($MissingPerm in $SPMissingPerms) {
+                        Write-Output ""
+                        Write-Output "Missing API Permission: $($MissingPerm.leastPermissions)"
+                    }
                 }
             }
 
-            if($SPExtraPerms){
-                # Output the extra permissions
-                Write-Output ""
-                Write-Warning "Service Principal has extra permissions:"
+            # Determine if the service principal has any extra permissions
+            $SPExtraPerms = $Diff | Where-Object {$_.SideIndicator -eq "=>"}
 
+            if($PSBoundParameters.ContainsKey('ExtraPermissions') -and $SPExtraPerms){
                 ForEach ($ExtraPerm in $SPExtraPerms) {
-                # Initialize a variable to store the API permission name
-                $APIPermissionName = $null
+                    # Initialize a variable to store the API permission name
+                    $APIPermissionName = $null
 
-                # Find match for $SPExtraPerms.InputObject in the $SPPerms array and output the ResourseID
-                $ExtraSPPermsResourceID = ($SPPerms | Where-Object { $_.AppRoleId -eq $($ExtraPerm).InputObject}).ResourceID
+                    # Find match for $SPExtraPerms.InputObject in the $SPPerms array and output the ResourseID
+                    $ExtraSPPermsResourceID = ($SPPerms | Where-Object { $_.AppRoleId -eq $($ExtraPerm).InputObject}).ResourceID
 
-                $graphServicePrincipal = Get-MgServicePrincipal -Filter "ID eq '$ExtraSPPermsResourceID'"
+                    $graphServicePrincipal = Get-MgServicePrincipal -Filter "ID eq '$ExtraSPPermsResourceID'"
 
-                # Retrieve the correct AppRole based on the ID
-                $APIPermission = $graphServicePrincipal.AppRoles | Where-Object { $_.Id -eq $ExtraPerm.InputObject }
+                    # Retrieve the correct AppRole based on the ID
+                    $APIPermission = $graphServicePrincipal.AppRoles | Where-Object { $_.Id -eq $ExtraPerm.InputObject }
 
-                # If a match is found, get the display name
-                If ($APIPermission) {
-                $APIPermissionName = $APIPermission.Value
-                }
-
-                # Output the results
+                    # If a match is found, get the display name
+                    If ($APIPermission) {
+                    $APIPermissionName = $APIPermission.Value
+                    }
+                    <#
+                    # Output the results
                     If ($APIPermissionName) {
                         Write-Warning "Extra API Permission: $APIPermissionName"
                     } Else {
                         Write-Warning "No matching API permission found for ID: $($ExtraPerm).InputObject"
                     }
+                    #>
+
+                    # Add to ExtraPerms array
+                    $ExtraPerms += "Extra API Permission: $APIPermissionName"
                 }
             }
         } else {
             Write-Output "No service principal permissions found, skipping comparison."
         }
+
+        # Return the appropriate value based on the switch
+        if ($ExtraPermissions) {
+            Write-Output ""
+            return $ExtraPerms
+        } else {
             return $SPMissingPerms
+        }
     }
 }
 
@@ -174,7 +193,7 @@ function Set-ScubaGearRoles {
     )
 
     try {
-        $AssignGRRole = New-MgRoleManagementDirectoryRoleAssignment -PrincipalId $ServicePrincipalId -RoleDefinitionId $roleDefinitionId -DirectoryScopeId "/"
+        $Null = New-MgRoleManagementDirectoryRoleAssignment -PrincipalId $ServicePrincipalId -RoleDefinitionId $roleDefinitionId -DirectoryScopeId "/"
         $RoleName = (Get-MgRoleManagementDirectoryRoleDefinition -UnifiedRoleDefinitionId $roleDefinitionID).DisplayName
         Write-Output "Assigned service principal to role: $RoleName"
     } catch {
@@ -213,7 +232,6 @@ function Get-ScubaGearAppRoleIDs {
         try {
             $Filter = "AppId eq '" + $Permission.resourceAPIAppId + "'"
             $ProductResource = Get-MgServicePrincipal -Filter $Filter
-            $ProductResourceID = $ProductResource.Id
 
             $APIPermissionNames = $Permission.leastPermissions
 
@@ -271,7 +289,7 @@ function Set-ScubaGearAPIPermissions {
         [string]$ServicePrincipalID,
 
         [Parameter(Mandatory = $false)]
-        [array]$SPMissingPerms,
+        [object]$SPMissingPerms,
 
         [Parameter(Mandatory = $true)]
         [array]$ScubaGearSPPermissions,
@@ -328,6 +346,98 @@ function Set-ScubaGearAPIPermissions {
         Write-Output "Service Principal already assigned to API permissions, skipping assignment."
     }
 }
+
+Function Remove-AllAPIPermissions {
+    <#
+
+    .SYNOPSIS
+        Removes all API permissions from the service principal.
+
+    .DESCRIPTION
+        This function will remove all API permissions from the service principal.
+
+    .PARAMETER AppID
+        Used to define the AppID of the service principal that will be removed from all API permissions.
+
+    .PARAMETER Environment
+        Used to define the environment that the application will be created in. The options are commercial, gcc, gcchigh, dod
+
+    .EXAMPLE
+        Remove-AllAPIPermissions -AppID "AppID" -Environment commercial
+
+        This example will remove all API permissions from the service principal with the specified AppID.
+
+    .NOTES
+        Author         : ScubaGear Team
+        Prerequisite   : PowerShell 5.1 or later
+    #>
+
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$AppID,
+
+            [Parameter(Mandatory = $true)]
+            [string]$ServicePrincipalID,
+
+            [Parameter(Mandatory = $true)]
+            [array]$ScubaGearSPPermissions,
+
+            [Parameter(Mandatory = $true)]
+            [ValidateSet("commercial", "gcc", "gcchigh", "dod", IgnoreCase = $True)]
+            [string]$Environment
+        )
+
+        switch ($Environment.ToLower().Trim()) {
+            "commercial" {
+                $GraphEnvironment  = "Global"
+            }
+            "gcc" {
+                $GraphEnvironment  = "Global"
+            }
+            "gcchigh" {
+                $GraphEnvironment  = "USGov"
+            }
+            "dod" {
+                $GraphEnvironment  = "USGovDoD"
+            }
+        }
+
+        # Connect to Microsoft Graph
+        try {
+            $Null = Connect-MgGraph -Scopes "Application.ReadWrite.All" -Environment $GraphEnvironment
+            Write-Verbose "Successfully connected to Microsoft Graph"
+        }
+        catch {
+            Write-Warning "Failed to connect to Microsoft Graph: $_.Exception.Message"
+        }
+
+        try{
+            # Retrieve the permissions from existing service principal
+            $app = Get-MgApplication -Filter "appId eq '$appId'"
+
+            # Remove API permissions by updating the app registration
+            $app.RequiredResourceAccess.Clear()  # This clears all the required resource access entries
+            Update-MgApplication -ApplicationId $app.Id -RequiredResourceAccess $app.RequiredResourceAccess
+
+            $appRoleAssignments = Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $servicePrincipalId
+            foreach ($assignment in $appRoleAssignments) {
+                Remove-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $servicePrincipalId -AppRoleAssignmentId $assignment.Id -Confirm:$false
+            }
+        }catch {
+            Write-Warning "Failed to remove API permissions from the service principal: $_.Exception.Message"
+            throw
+        }
+
+        # Assign the permissions to the service principal
+        try {
+            $Null = Set-ScubaGearAPIPermissions -ServicePrincipalID $ServicePrincipalID -ScubaGearSPPermissions $ScubaGearSPPermissions
+            Write-Output "Assigned API permissions to the service principal: $($ScubaGearSPPermissions)"
+        }
+        catch {
+            Write-Warning "Failed to assign API permissions: $_.Exception.Message"
+            throw
+        }
+    }
 
 Function Get-ScubaGearAppPermissions {
 <#
@@ -394,7 +504,7 @@ Function Get-ScubaGearAppPermissions {
     }
 
     # Required Permissions for the ScubaGear Application
-    $ScubaGearSPPermissions = Get-ScubaGearEntraRedundantPermissions -ServicePrincipal | sort -Property LeastPermissions,resourceAPiAppID -Unique
+    $ScubaGearSPPermissions = Get-ScubaGearEntraRedundantPermissions -ServicePrincipal | Sort-Object -Property LeastPermissions,resourceAPiAppID -Unique
 
     # Required Roles for the ScubaGear Application
     $ScubaGearSPRole = Get-ScubaGearPermissions -OutAs role
@@ -408,22 +518,35 @@ Function Get-ScubaGearAppPermissions {
 
     # Compare the service principal permissions against the AppRoleIDs array
     $SPMissingPerms = Compare-ScubaGearPermissions -ServicePrincipalID $SP.ID -AppRoleIDs $AppRoleIDs
+    $SPMissingPerms
+
+    # Check if the service principal has any extra permissions that are not in the ScubaGearSPPermissions
+    $SPExtraPerms = Compare-ScubaGearPermissions -ServicePrincipalID $SP.ID -AppRoleIDs $AppRoleIDs -ExtraPermissions
+    $SPExtraPerms
 
     # Compare the service principal to the directory roles
     $SPRoleAssignment = Compare-ScubaGearPermissions -ServicePrincipalID $SP.ID -Roles $ScubaGearSPRole
+    $SPRoleAssignment
 
     # If there are differences, assign the service principal to the API permissions if the -FixPermissionIssues switch is used
-    if($PSBoundParameters.ContainsKey('FixPermissionIssues') -and $null -ne $SPMissingPerms){
+    if($PSBoundParameters.ContainsKey('FixPermissionIssues') -and ($null -ne $SPMissingPerms -and $SPMissingPerms -match "Missing API Permission") -and $Null -eq $SPExtraPerms){
         # Assign the missing permissions to the service principal
-        $AssignPerms = Set-ScubaGearAPIPermissions -ServicePrincipalID $SP.ID -SPMissingPerms $SPMissingPerms -ScubaGearSPPermissions $ScubaGearSPPermissions -SPPerms $SPPerms
+        Write-Output "Service Principal permissions comparison completed, missing [$($SPMissingPerms.leastPermissions.Count)] API permissions"
+        $Null = Set-ScubaGearAPIPermissions -ServicePrincipalID $SP.ID -SPMissingPerms $SPMissingPerms -ScubaGearSPPermissions $ScubaGearSPPermissions -SPPerms $SPPerms
 
     }elseif($PSBoundParameters.ContainsKey('FixPermissionIssues') -and (($Null -eq $SPPerms) -or $SPRoleAssignment)){
         if($Null -eq $SPPerms){
             # Assign the service principal to the required permissions
-            $AssignPerms = Set-ScubaGearAPIPermissions -ServicePrincipalID $SP.ID -ScubaGearSPPermissions $ScubaGearSPPermissions
-        }elseif($SPRoleAssignment){
+            Write-Output "Assigning service principal to API permissions as specified in the permissions file."
+            $Null = Set-ScubaGearAPIPermissions -ServicePrincipalID $SP.ID -ScubaGearSPPermissions $ScubaGearSPPermissions
+        }elseif($SPRoleAssignment[1] -notmatch "Service Principal already assigned to directory roles"){
             # Assign the service principal to the required roles
-            $AssignRoles = Set-ScubaGearRoles -ServicePrincipalID $SP.ID -roleDefinitionID $SPRoleAssignment
+            Write-Output "Assigning service principal to directory roles [$ScubaGearSPRole] as specified in the permissions file."
+            $Null = Set-ScubaGearRoles -ServicePrincipalID $SP.ID -roleDefinitionID $SPRoleAssignment
+        }elseif($PSBoundParameters.ContainsKey('FixPermissionIssues') -and $SPExtraPerms -match "Extra API Permission:"){
+            # Remove the extra permissions from the service principal
+            Write-Output "Removing extra API permissions from the service principal"
+            $Null = Remove-AllAPIPermissions -AppID $AppID -ServicePrincipalID $SP.ID -ScubaGearSPPermissions $ScubaGearSPPermissions -Environment $Environment
         }
     }else{
        # No missing permissions found, skipping assignment.
@@ -515,7 +638,7 @@ Try {
     }
 
     # Required Permissions for the ScubaGear Application
-    $requiredResourcePermissions = Get-ScubaGearEntraRedundantPermissions -ServicePrincipal | sort -Property LeastPermissions,resourceAPiAppID -Unique
+    $requiredResourcePermissions = Get-ScubaGearEntraRedundantPermissions -ServicePrincipal | Sort-Object -Property LeastPermissions,resourceAPiAppID -Unique
 
     # Required Roles for the ScubaGear Application
     $PermissionFileRole = Get-ScubaGearPermissions -OutAs role
@@ -648,7 +771,7 @@ Try {
     Write-Warning "Failed to create ScubaGear Application: $_.Exception.Message"
 }finally{
     # Always disconnect from the graph
-    $DisconnectGraph = Disconnect-MgGraph
+    $Null = Disconnect-MgGraph
     }
 }
 
@@ -667,18 +790,33 @@ function Update-ScubaGearApp {
     .PARAMETER ServicePrincipalName
         Used to define the name of the Service Principal that will be created.
 
+    .PARAMETER AppID
+        Used to define the AppID of the service principal that will be updated.
+
+    .PARAMETER Environment
+        Used to define the environment that the application will be created in. The options are commercial, gcc, gcchigh, dod
+
+    .PARAMETER ListCerts
+        List the current certificates for the service principal.
+
+    .PARAMETER DeleteCert
+        Delete the certificate from the service principal.
+
+    .PARAMETER NewCert
+        Add a new certificate to the service principal.
+
     .EXAMPLE
-        Update-ScubaGearApp -NewCert -CertName "NameOfYourCert" -ServicePrincipalName "MyServicePrincipal" -environment "gcchigh"
+        Update-ScubaGearApp -NewCert -CertName "NameOfYourCert" -ServicePrincipalName "MyServicePrincipal" -environment "gcchigh" -appId "AppID"
 
         Add a new certificate named "NameOfYourCert" to the service principal with the name "MyServicePrincipal"
 
     .EXAMPLE
-        Update-ScubaGearApp -ServicePrincipalName "MyServicePrincipal" -Environment "commercial" -ListCerts
+        Update-ScubaGearApp -ServicePrincipalName "MyServicePrincipal" -Environment "commercial" -ListCerts -appId "AppID"
 
         List the current certificates for the service principal with the name "MyServicePrincipal"
 
     .EXAMPLE
-        Update-ScubaGearApp -ServicePrincipalName "MyServicePrincipal" -Environment "dod" -DeleteCert "CN=NameOfYourCert"
+        Update-ScubaGearApp -ServicePrincipalName "MyServicePrincipal" -Environment "dod" -DeleteCert "CN=NameOfYourCert" -appId "AppID"
 
         Delete the certificate named "CN=NameOfYourCert" from the service principal with the name "MyServicePrincipal"
 
@@ -830,4 +968,4 @@ function Update-ScubaGearApp {
     }
 }
 
-Export-ModuleMember -Function New-ScubaGearServicePrincipal, Update-ScubaGearApp, Get-ScubaGearAppPermissions, Get-ScubaGearAppRoleIDs, Set-ScubaGearAPIPermissions, Set-ScubaGearRoles, Compare-ScubaGearPermissions
+Export-ModuleMember -Function New-ScubaGearServicePrincipal, Update-ScubaGearApp, Get-ScubaGearAppPermissions, Get-ScubaGearAppRoleIDs, Set-ScubaGearAPIPermissions, Set-ScubaGearRoles, Compare-ScubaGearPermissions, Remove-AllAPIPermissions
