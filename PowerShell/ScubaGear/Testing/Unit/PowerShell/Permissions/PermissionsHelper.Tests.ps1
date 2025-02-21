@@ -6,7 +6,7 @@ InModuleScope PermissionsHelper {
         BeforeAll {
 
             Mock -ModuleName PermissionsHelper Get-ScubaGearPermissions -MockWith {
-                param ($Product, $ServicePrincipal)
+                param ($Product)
                     $permissionSet = Get-Content -Path "$($ProviderPath)/ScubaGearPermissions.json" | ConvertFrom-Json
                     $collection = $permissionSet | Where-Object { $_.scubaGearProduct -contains $product -and $_.supportedEnv -contains "commercial" }
                     $results = $collection | Where-Object {$_.moduleCmdlet -notlike 'Connect-Mg*'} | Select-Object -ExpandProperty leastPermissions -Unique | sort-object
