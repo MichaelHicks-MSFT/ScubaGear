@@ -31,3 +31,7 @@
 **/M365BaselineConformance*
 /Testing/Functional/Reports*
 /Testing/Functional/Archive*
+
+# Allow specific lines or patterns
+# gitleaks:allow
+"resourceAPIAppId": "ab3be6b7-f5df-413d-ac2d-abf1e3fd9c0b"
