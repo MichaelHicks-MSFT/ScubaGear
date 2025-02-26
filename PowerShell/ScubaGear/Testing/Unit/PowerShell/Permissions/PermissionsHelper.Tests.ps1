@@ -6,7 +6,7 @@ InModuleScope PermissionsHelper {
         BeforeAll {
 
             Mock -ModuleName PermissionsHelper Get-ScubaGearPermissions -MockWith {
-                param ($Product)
+                param ($Product, $ServicePrincipal)
                     $permissionSet = Get-Content -Path "$($ProviderPath)/ScubaGearPermissions.json" | ConvertFrom-Json
                     $collection = $permissionSet | Where-Object { $_.scubaGearProduct -contains $product -and $_.supportedEnv -contains "commercial" }
                     $results = $collection | Where-Object {$_.moduleCmdlet -notlike 'Connect-Mg*'} | Select-Object -ExpandProperty leastPermissions -Unique | sort-object
@@ -64,10 +64,10 @@ InModuleScope PermissionsHelper {
 }
 
 InModuleScope PermissionsHelper {
-    Describe -Tag 'PermissionsHelper' -Name "Get-ScubaGearEntraRedundantPermissions" {
+    Describe -Tag 'PermissionsHelper' -Name "Get-ScubaGearEntraMinimumPermissions" {
         BeforeAll {
 
-            Mock -ModuleName PermissionsHelper Get-ScubaGearEntraRedundantPermissions -MockWith {
+            Mock -ModuleName PermissionsHelper Get-ScubaGearEntraMinimumPermissions -MockWith {
                 # Create a list to hold the filtered permissions
                 $filteredPermissions = @()
 
@@ -101,7 +101,7 @@ InModuleScope PermissionsHelper {
         }
 
         Context "Check redundant permissions for aad" {
-            It "should return the expected value from Get-ScubaGearEntraRedundantPermissions for aad" {
+            It "should return the expected value from Get-ScubaGearEntraMinimumPermissions for aad" {
                 $expected = @(
                     "Directory.Read.All"
                     "Policy.Read.All"
@@ -112,7 +112,7 @@ InModuleScope PermissionsHelper {
                     "RoleManagementPolicy.Read.Directory"
                     "User.Read.All"
                 )
-                $result = Get-ScubaGearEntraRedundantPermissions
+                $result = Get-ScubaGearEntraMinimumPermissions
                 $result | Should -Be $expected
             }
         }
