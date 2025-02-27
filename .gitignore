@@ -31,6 +31,3 @@
 **/M365BaselineConformance*
 /Testing/Functional/Reports*
 /Testing/Functional/Archive*
-
-# configs
-.gitleaks.toml
