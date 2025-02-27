@@ -4,6 +4,3 @@
 ENABLE_LINTERS:
   - YAML_YAMLLINT
 LOG_LEVEL: ERROR
-
-# Exclude the specific resourceAPIAppId value for Microsoft Teams
-FILTER_REGEX_EXCLUDE: "\"resourceAPIAppId\": \"ab3be6b7-f5df-413d-ac2d-abf1e3fd9c0b\""
